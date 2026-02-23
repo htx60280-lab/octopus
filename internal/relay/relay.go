@@ -75,7 +75,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		select {
 		case <-c.Request.Context().Done():
 			log.Infof("request context canceled, stopping retry")
-			metrics.Save(c.Request.Context(), false, context.Canceled, iter.Attempts())
+			go metrics.Save(context.Background(), false, context.Canceled, iter.Attempts())
 			return
 		default:
 		}
@@ -141,18 +141,18 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 		result := ra.attempt()
 		if result.Success {
-			metrics.Save(c.Request.Context(), true, nil, iter.Attempts())
+			go metrics.Save(context.Background(), true, nil, iter.Attempts())
 			return
 		}
 		if result.Written {
-			metrics.Save(c.Request.Context(), false, result.Err, iter.Attempts())
+			go metrics.Save(context.Background(), false, result.Err, iter.Attempts())
 			return
 		}
 		lastErr = result.Err
 	}
 
 	// 所有通道都失败
-	metrics.Save(c.Request.Context(), false, lastErr, iter.Attempts())
+	go metrics.Save(context.Background(), false, lastErr, iter.Attempts())
 	resp.Error(c, http.StatusBadGateway, "all channels failed")
 }
 
