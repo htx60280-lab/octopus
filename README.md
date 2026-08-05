@@ -15,9 +15,13 @@
 
 - 🔀 **Multi-Channel Aggregation** - Connect multiple LLM provider channels with unified management
 - 🔑 **Multi-Key Support** - Support multiple API keys for a single channel
+- 🎯 **Key Selection Modes** - Cost-first / Round-robin / Weighted-random key selection, automatic failover on 429
 - ⚡ **Smart Selection** - Multiple endpoints per channel, smart selection of the endpoint with the shortest delay
 - ⚖️ **Load Balancing** - Automatic request distribution for stable and efficient service
 - 🔄 **Protocol Conversion** - Seamless conversion between OpenAI Chat / OpenAI Responses / Anthropic API formats
+- 🧠 **Responses Compact** - Native `/v1/responses/compact` endpoint for Codex conversation compression
+- 🔎 **Rerank Support** - `/v1/rerank` endpoint (Jina / Cohere compatible)
+- ⏱️ **First-Token Timeout** - Covers the upstream response-header wait phase, triggers failover on slow upstreams
 - 💰 **Price Sync** - Automatic model pricing updates
 - 🔃 **Model Sync** - Automatic synchronization of available model lists with channels
 - 📊 **Analytics** - Comprehensive request statistics, token consumption, and cost tracking
@@ -54,18 +58,26 @@ Download the binary for your platform from [Releases](https://github.com/bestrui
 ### 🛠️ Build from Source
 
 **Requirements:**
-- Go 1.24.4
+- Go 1.26+
 - Node.js 18+
 - pnpm
+
+**Dependencies:**
+
+The backend depends on [axonhub/llm](https://github.com/looplj/axonhub) via a relative-path `replace` directive. Clone it next to this repository:
+
+```bash
+git clone -b unstable https://github.com/looplj/axonhub.git ../axonhub
+```
+
+> 💡 **Tip**: `scripts/build.sh` detects and clones this dependency automatically if it is missing.
 
 ```bash
 # Clone the repository
 git clone https://github.com/bestruirui/octopus.git
 cd octopus
-# Build frontend
+# Build frontend (outputs directly to static/out, embedded into the Go binary)
 cd web && pnpm install && pnpm run build && cd ..
-# Move frontend assets to static directory
-mv web/out static/
 # Start the backend service
 go run main.go start 
 ```
@@ -75,11 +87,11 @@ go run main.go start
 **Development Mode**
 
 ```bash
-cd web && pnpm install && NEXT_PUBLIC_API_BASE_URL="http://127.0.0.1:8080" pnpm run dev
+cd web && pnpm install && pnpm run dev
 ## Open a new terminal, start the backend service
 go run main.go start
 ## Access the frontend at
-http://localhost:3000
+http://localhost:5173
 ```
 
 ### 🔐 Default Credentials
@@ -243,10 +255,25 @@ The program automatically appends API paths based on channel type. You only need
 | OpenAI Chat | `/chat/completions` | `https://api.openai.com/v1` | `https://api.openai.com/v1/chat/completions` |
 | OpenAI Responses | `/responses` | `https://api.openai.com/v1` | `https://api.openai.com/v1/responses` |
 | OpenAI Images | `/images/generations`, `/images/edits`, `/images/variations` | `https://api.openai.com/v1` | `https://api.openai.com/v1/images/generations` |
+| OpenAI Embeddings | `/embeddings` | `https://api.openai.com/v1` | `https://api.openai.com/v1/embeddings` |
 | Anthropic | `/messages` | `https://api.anthropic.com/v1` | `https://api.anthropic.com/v1/messages` |
 | Gemini | `/models/:model:generateContent` | `https://generativelanguage.googleapis.com/v1beta` | `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent` |
+| Doubao | `/chat/completions` | `https://ark.cn-beijing.volces.com/api/v3` | `https://ark.cn-beijing.volces.com/api/v3/chat/completions` |
+| Jina Rerank | `/rerank` | `https://api.jina.ai/v1` | `https://api.jina.ai/v1/rerank` |
 
 > 💡 **Tip**: No need to include specific API endpoint paths in the Base URL - the program handles this automatically.
+
+**Key Selection Modes:**
+
+When a channel has multiple keys, you can choose how the next key is picked:
+
+| Mode | Description |
+|------|-------------|
+| 🪙 **Lowest Cost** (default) | Always prefers the key with the lowest total cost |
+| 🔁 **Round Robin** | Rotates through keys by last-used timestamp |
+| 🎲 **Weighted Random** | Picks a key by configured weight (`weight` field per key) |
+
+> 💡 **Tip**: When a key returns `429`, it enters a 5-minute cooldown and is skipped automatically, so the next request falls over to another key.
 
 ---
 
@@ -370,6 +397,8 @@ Edit `~/.codex/auth.json`
   "OPENAI_API_KEY": "sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg"
 }
 ```
+
+> 💡 **Tip**: Codex conversation compression (`/compact`) is supported natively via the `/v1/responses/compact` endpoint — route it to a channel of type `OpenAI Responses`.
 
 ---
 

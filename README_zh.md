@@ -15,9 +15,13 @@
 
 - 🔀 **多渠道聚合** - 支持接入多个 LLM 供应商渠道，统一管理
 - 🔑 **多Key支持** - 单渠道支持配置多 Key
+- 🎯 **Key 选择模式** - 成本最低 / 轮询 / 加权随机，429 自动切换 Key
 - ⚡ **智能优选** - 单渠道多端点，智能选择延迟最小的端点请求
 - ⚖️ **负载均衡** - 自动分配请求，确保服务稳定高效
 - 🔄 **协议互转** - 支持 OpenAI Chat / OpenAI Responses / Anthropic 三种 API 格式互相转换
+- 🧠 **Responses 压缩** - 原生支持 `/v1/responses/compact`，支持 Codex 对话压缩
+- 🔎 **Rerank 支持** - `/v1/rerank` 端点（兼容 Jina / Cohere）
+- ⏱️ **首字超时** - 覆盖「等待上游响应头」阶段，慢上游自动触发故障转移
 - 💰 **价格同步** - 自动更新模型价格
 - 🔃 **模型同步** - 自动与渠道同步可用模型列表，省心省力
 - 📊 **数据统计** - 全面的请求统计、Token 消耗、费用追踪
@@ -54,18 +58,26 @@ docker compose up -d
 ### 🛠️ 源码运行
 
 **环境要求：**
-- Go 1.24.4
+- Go 1.26+
 - Node.js 18+
 - pnpm
+
+**依赖说明：**
+
+后端依赖 [axonhub/llm](https://github.com/looplj/axonhub)，通过 `go.mod` 的相对路径 `replace` 引用，请将仓库克隆到本项目的上级目录：
+
+```bash
+git clone -b unstable https://github.com/looplj/axonhub.git ../axonhub
+```
+
+> 💡 **提示**：`scripts/build.sh` 会自动检测并克隆该依赖。
 
 ```bash
 # 克隆项目
 git clone https://github.com/bestruirui/octopus.git
 cd octopus
-# 构建前端
+# 构建前端（直接输出到 static/out，嵌入 Go 二进制）
 cd web && pnpm install && pnpm run build && cd ..
-# 移动前端产物到 static 目录
-mv web/out static/
 # 启动后端服务
 go run main.go start 
 ```
@@ -75,11 +87,11 @@ go run main.go start
 **开发模式**
 
 ```bash
-cd web && pnpm install && NEXT_PUBLIC_API_BASE_URL="http://127.0.0.1:8080" pnpm run dev
+cd web && pnpm install && pnpm run dev
 ## 新建终端,启动后端服务
 go run main.go start
 ## 访问前端地址
-http://localhost:3000
+http://localhost:5173
 ```
 
 ### 🔐 默认账户
@@ -244,10 +256,25 @@ http://localhost:3000
 | OpenAI Chat | `/chat/completions` | `https://api.openai.com/v1` | `https://api.openai.com/v1/chat/completions` |
 | OpenAI Responses | `/responses` | `https://api.openai.com/v1` | `https://api.openai.com/v1/responses` |
 | OpenAI Images | `/images/generations`、`/images/edits`、`/images/variations` | `https://api.openai.com/v1` | `https://api.openai.com/v1/images/generations` |
+| OpenAI Embeddings | `/embeddings` | `https://api.openai.com/v1` | `https://api.openai.com/v1/embeddings` |
 | Anthropic | `/messages` | `https://api.anthropic.com/v1` | `https://api.anthropic.com/v1/messages` |
 | Gemini | `/models/:model:generateContent` | `https://generativelanguage.googleapis.com/v1beta` | `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent` |
+| Doubao | `/chat/completions` | `https://ark.cn-beijing.volces.com/api/v3` | `https://ark.cn-beijing.volces.com/api/v3/chat/completions` |
+| Jina Rerank | `/rerank` | `https://api.jina.ai/v1` | `https://api.jina.ai/v1/rerank` |
 
 > 💡 **提示**：填写 Base URL 时无需包含具体的 API 端点路径，程序会自动处理。
+
+**Key 选择模式：**
+
+当渠道配置了多个 Key 时，可以选择 Key 的选取策略：
+
+| 模式 | 说明 |
+|------|------|
+| 🪙 **成本最低**（默认） | 始终优先使用总成本最低的 Key |
+| 🔁 **轮询** | 按最后使用时间依次轮换使用 |
+| 🎲 **加权随机** | 按每个 Key 配置的权重（`weight` 字段）随机选取 |
+
+> 💡 **提示**：当某个 Key 返回 `429` 时，会自动进入 5 分钟冷却并跳过，后续请求自动切换到其他 Key。
 
 ---
 
@@ -371,6 +398,8 @@ base_url = "http://127.0.0.1:8080/v1"
   "OPENAI_API_KEY": "sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg"
 }
 ```
+
+> 💡 **提示**：Codex 对话压缩（`/compact`）通过 `/v1/responses/compact` 端点原生支持——将请求路由到类型为 `OpenAI Responses` 的渠道即可。
 
 
 ---
