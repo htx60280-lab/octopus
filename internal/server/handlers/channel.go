@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
@@ -77,6 +78,10 @@ func createChannel(c *gin.Context) {
 		return
 	}
 	if err := op.ChannelCreate(&channel, c.Request.Context()); err != nil {
+		if db.IsDuplicateError(err) {
+			resp.Error(c, http.StatusConflict, "resource already exists")
+			return
+		}
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}

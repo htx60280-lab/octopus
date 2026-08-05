@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/common/Toast';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from 'use-intl';
 import { useEffect, useRef, useState } from 'react';
 import { RefreshCw, X, Plus } from 'lucide-react';
 
@@ -19,6 +19,7 @@ export interface ChannelKeyFormItem {
     id?: number;
     enabled: boolean;
     channel_key: string;
+    weight?: number;
     status_code?: number;
     last_use_time_stamp?: number;
     total_cost?: number;
@@ -33,6 +34,7 @@ export interface ChannelFormData {
     channel_proxy: string;
     param_override: string;
     keys: ChannelKeyFormItem[];
+    key_mode: number;
     model: string;
     custom_model: string;
     enabled: boolean;
@@ -169,7 +171,7 @@ export function ChannelForm({
     const handleAddKey = () => {
         onFormDataChange({
             ...formData,
-            keys: [...formData.keys, { enabled: true, channel_key: '' }],
+            keys: [...formData.keys, { enabled: true, channel_key: '', weight: 1 }],
         });
     };
 
@@ -244,7 +246,7 @@ export function ChannelForm({
                     </label>
                     <Select
                         value={String(formData.type)}
-                        onValueChange={(value) => onFormDataChange({ ...formData, type: Number(value) as ChannelType })}
+                        onValueChange={(value) => onFormDataChange({ ...formData, type: value as ChannelType })}
                     >
                         <SelectTrigger id={`${idPrefix}-type`} className="rounded-xl w-full border border-border px-4 py-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                             <SelectValue />
@@ -321,6 +323,24 @@ export function ChannelForm({
                         {t('add')}
                     </Button>
                 </div>
+                {(formData.keys ?? []).length > 1 && (
+                    <div className="flex items-center gap-2">
+                        <label className="text-xs text-muted-foreground whitespace-nowrap">{t('keyMode')}</label>
+                        <Select
+                            value={String(formData.key_mode ?? 0)}
+                            onValueChange={(value) => onFormDataChange({ ...formData, key_mode: Number(value) })}
+                        >
+                            <SelectTrigger className="rounded-xl h-8 w-48 border border-border px-3 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl">
+                                <SelectItem className="rounded-xl text-xs" value="0">{t('keyModeCost')}</SelectItem>
+                                <SelectItem className="rounded-xl text-xs" value="1">{t('keyModeRoundRobin')}</SelectItem>
+                                <SelectItem className="rounded-xl text-xs" value="2">{t('keyModeWeightedRandom')}</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                )}
                 <div className="space-y-2">
                     {(formData.keys ?? []).map((k, idx) => (
                         <div key={k.id ?? `new-${idx}`} className="flex items-center gap-2">
@@ -332,6 +352,17 @@ export function ChannelForm({
                                 required={idx === 0}
                                 className="rounded-xl flex-1"
                             />
+                            {(formData.key_mode ?? 0) === 2 && (
+                                <Input
+                                    type="number"
+                                    min={1}
+                                    value={k.weight ?? 1}
+                                    onChange={(e) => handleUpdateKey(idx, { weight: Number(e.target.value) || 1 })}
+                                    placeholder={t('keyWeight')}
+                                    title={t('keyWeight')}
+                                    className="rounded-xl w-20"
+                                />
+                            )}
                             <Input
                                 type="text"
                                 value={k.remark ?? ''}

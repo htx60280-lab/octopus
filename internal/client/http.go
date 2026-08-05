@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
@@ -101,6 +102,8 @@ func newHTTPClientNoProxy() (*http.Client, error) {
 		return nil, err
 	}
 	cloned.Proxy = nil
+	// 上游迟迟不返回响应头时兜底断开,避免连接无限挂起
+	cloned.ResponseHeaderTimeout = 60 * time.Second
 	return &http.Client{Transport: cloned}, nil
 }
 
@@ -131,5 +134,7 @@ func newHTTPClientCustomProxy(proxyURLStr string) (*http.Client, error) {
 		return nil, fmt.Errorf("unsupported proxy scheme: %s", proxyURL.Scheme)
 	}
 
+	// 上游迟迟不返回响应头时兜底断开,避免连接无限挂起
+	cloned.ResponseHeaderTimeout = 60 * time.Second
 	return &http.Client{Transport: cloned}, nil
 }

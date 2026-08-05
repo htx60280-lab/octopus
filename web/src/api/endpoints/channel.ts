@@ -7,12 +7,12 @@ import { StatsChannel, type StatsMetricsFormatted } from './stats';
  * 渠道类型枚举
  */
 export enum ChannelType {
-    OpenAIChat = 0,
-    OpenAIResponse = 1,
-    Anthropic = 2,
-    Gemini = 3,
-    Volcengine = 4,
-    OpenAIEmbedding = 5,
+    OpenAIChat = 'openai/chat_completions',
+    OpenAIResponse = 'openai/responses',
+    Anthropic = 'anthropic/messages',
+    Gemini = 'gemini/contents',
+    Volcengine = 'doubao',
+    OpenAIEmbedding = 'openai/embeddings',
 }
 
 /**
@@ -40,6 +40,7 @@ export type ChannelKey = {
     channel_id: number;
     enabled: boolean;
     channel_key: string;
+    weight: number;
     status_code: number;
     last_use_time_stamp: number;
     total_cost: number;
@@ -56,6 +57,7 @@ export type Channel = {
     enabled: boolean;
     base_urls: BaseUrl[];
     keys: ChannelKey[];
+    key_mode: number;
     model: string;
     custom_model: string;
     proxy: boolean;
@@ -83,7 +85,8 @@ export type CreateChannelRequest = {
     type: ChannelType;
     enabled?: boolean;
     base_urls: BaseUrl[];
-    keys: Array<Pick<ChannelKey, 'enabled' | 'channel_key' | 'remark'>>;
+    keys: Array<Pick<ChannelKey, 'enabled' | 'channel_key' | 'weight' | 'remark'>>;
+    key_mode?: number;
     model: string;
     custom_model?: string;
     proxy?: boolean;
@@ -113,9 +116,10 @@ export type UpdateChannelRequest = {
     channel_proxy?: string | null;
     param_override?: string | null;
     match_regex?: string | null;
+    key_mode?: number;
     // keys diff
-    keys_to_add?: Array<Pick<ChannelKey, 'enabled' | 'channel_key' | 'remark'>>;
-    keys_to_update?: Array<{ id: number; enabled?: boolean; channel_key?: string; remark?: string }>;
+    keys_to_add?: Array<Pick<ChannelKey, 'enabled' | 'channel_key' | 'weight' | 'remark'>>;
+    keys_to_update?: Array<{ id: number; enabled?: boolean; channel_key?: string; weight?: number; remark?: string }>;
     keys_to_delete?: number[];
 };
 
