@@ -86,13 +86,21 @@ prepare_environment() {
     local go_version=$(go version 2>/dev/null | grep -o 'go[0-9]\+\.[0-9]\+' | head -1)
     log_success "Go version: $go_version"
 
-    # Check Python
-    if ! command_exists python3; then
+    # Check Python (python3 on Linux/macOS, python on Windows;
+    # skip the WindowsApps store stub which exists but is not a real interpreter)
+    PYTHON_CMD=""
+    for cand in python3 python; do
+        if command_exists "$cand" && "$cand" --version 2>/dev/null | grep -q "Python"; then
+            PYTHON_CMD="$cand"
+            break
+        fi
+    done
+    if [ -z "$PYTHON_CMD" ]; then
         log_error "Python is not installed. Please install Python from https://www.python.org/downloads/"
         return 1
     fi
 
-    local python_version=$(python3 --version 2>/dev/null)
+    local python_version=$(${PYTHON_CMD} --version 2>/dev/null)
     log_success "Python version: $python_version"
 
     # Check Node.js
@@ -151,6 +159,22 @@ prepare_environment() {
 
     log_success "All required commands installed"
 
+    # Check replace dependencies (go.mod uses relative-path replace for axonhub/llm)
+    log_info "Checking replace dependencies..."
+    if [ -f go.mod ] && grep -q "replace github.com/looplj/axonhub/llm" go.mod; then
+        if [ ! -d "../axonhub/llm" ]; then
+            log_warning "axonhub/llm dependency not found at ../axonhub/llm"
+            log_info "Cloning axonhub (unstable) to ../axonhub ..."
+            if ! git clone --depth 1 -b unstable https://github.com/looplj/axonhub.git ../axonhub; then
+                log_error "Failed to clone axonhub. Clone it manually:"
+                log_error "  git clone -b unstable https://github.com/looplj/axonhub.git <octopus-parent>/axonhub"
+                return 1
+            fi
+            log_success "axonhub cloned successfully"
+        fi
+    fi
+    log_success "Replace dependencies ready"
+
     # Create output directory and subdirectories
     log_info "Creating output directory structure: ${OUTPUT_DIR}"
 
@@ -187,6 +211,8 @@ prepare_environment() {
     log_info "Tidying Go modules..."
     if ! go mod tidy >/dev/null 2>&1; then
         log_error "Failed to tidy Go modules"
+        log_error "Verbose output:"
+        go mod tidy 2>&1 | sed 's/^/  /'
         return 1
     fi
 
@@ -238,7 +264,7 @@ build_frontend() {
 
 update_price() {
     log_step "Updating price"
-    if ! python3 scripts/updatePrice.py; then
+    if ! ${PYTHON_CMD:-python3} scripts/updatePrice.py; then
         log_error "Failed to update price"
         return 1
     fi
