@@ -145,7 +145,11 @@ prepare_environment() {
         return 1
     fi
 
-    # Check zip
+    # Check zip (Windows Git Bash often lacks it; fall back to GnuWin32)
+    if ! command_exists zip && [ -d "/c/Program Files (x86)/GnuWin32/bin" ]; then
+        PATH="/c/Program Files (x86)/GnuWin32/bin:$PATH"
+        export PATH
+    fi
     if ! command_exists zip; then
         log_error "zip is not installed."
         return 1
