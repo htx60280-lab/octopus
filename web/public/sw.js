@@ -8,7 +8,7 @@
  * - FONT cache is version-independent (fonts persist across updates)
  */
 const CACHE_PREFIX = 'octopus';
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAMES = {
     static: `${CACHE_PREFIX}-static-${CACHE_VERSION}`,
     app: `${CACHE_PREFIX}-app-${CACHE_VERSION}`,
@@ -96,6 +96,28 @@ self.addEventListener('fetch', (event) => {
 // ============ 缓存策略 ============
 
 /**
+ * 判断响应是否可以安全写入 Cache。
+ * 注意：不能用 response.ok —— 206 Partial Content 也满足 ok(200-299)，
+ * 但 Cache API 明确不支持 206,一旦 cache.put() 就会抛 TypeError,
+ * 导致 event.respondWith() 的 promise reject,页面导航直接失败(白屏/崩溃)。
+ * 只缓存同源、状态为 200 的完整响应。
+ */
+function isCacheable(response) {
+    return !!response && response.status === 200 && response.type === 'basic';
+}
+
+async function putInCache(cache, request, response) {
+    try {
+        if (isCacheable(response)) {
+            await cache.put(request, response.clone());
+        }
+    } catch (e) {
+        // 缓存失败绝不影响请求本身（例如 206、opaque、配额满等）
+        console.warn('SW cache put skipped:', e?.message || e);
+    }
+}
+
+/**
  * Cache First：优先缓存，适用于带哈希的不变资源
  */
 async function cacheFirst(request, cacheName) {
@@ -107,9 +129,7 @@ async function cacheFirst(request, cacheName) {
 
     try {
         const response = await fetch(request);
-        if (response.ok) {
-            cache.put(request, response.clone());
-        }
+        await putInCache(cache, request, response);
         return response;
     } catch {
         // 离线且无缓存
@@ -124,9 +144,7 @@ async function networkFirst(request, cacheName, { fallbackUrl = null } = {}) {
     const cache = await caches.open(cacheName);
     try {
         const response = await fetch(request);
-        if (response.ok) {
-            cache.put(request, response.clone());
-        }
+        await putInCache(cache, request, response);
         return response;
     } catch {
         const cached = await cache.match(request);
@@ -150,10 +168,8 @@ async function staleWhileRevalidate(request, cacheName) {
     const cached = await cache.match(request);
 
     const fetchPromise = fetch(request)
-        .then((response) => {
-            if (response.ok) {
-                cache.put(request, response.clone());
-            }
+        .then(async (response) => {
+            await putInCache(cache, request, response);
             return response;
         })
         .catch(() => cached || new Response('Offline', { status: 503 }));
