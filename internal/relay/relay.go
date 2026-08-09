@@ -24,6 +24,7 @@ import (
 	"github.com/looplj/axonhub/llm/pipeline/stream"
 	"github.com/looplj/axonhub/llm/streams"
 	"github.com/looplj/axonhub/llm/transformer"
+	"github.com/tidwall/sjson"
 )
 
 // Handler 返回处理入站请求并转发到上游服务的 Gin handler。
@@ -301,6 +302,8 @@ func (ra *relayAttempt) forward() (int, error) {
 }
 
 func (ra *relayAttempt) applyChannelRequestOptions(outboundRequest *httpclient.Request) {
+	ra.applySameFormatRequestBody(outboundRequest)
+
 	// ParamOverride 只覆盖 JSON 请求体；multipart 图片编辑等请求不能按 map 合并。
 	if ra.channel.ParamOverride != nil && *ra.channel.ParamOverride != "" && strings.Contains(strings.ToLower(outboundRequest.Headers.Get("Content-Type")+" "+outboundRequest.ContentType), "application/json") {
 		var bodyMap map[string]any
@@ -329,6 +332,32 @@ func (ra *relayAttempt) applyChannelRequestOptions(outboundRequest *httpclient.R
 		}
 		outboundRequest.Headers.Set(header.HeaderKey, header.HeaderValue)
 	}
+}
+
+func (ra *relayAttempt) applySameFormatRequestBody(outboundRequest *httpclient.Request) {
+	if outboundRequest == nil || ra.internalRequest == nil || ra.internalRequest.RawRequest == nil {
+		return
+	}
+	if outboundRequest.APIFormat == "" || outboundRequest.APIFormat != ra.internalRequest.APIFormat.String() {
+		return
+	}
+	if !strings.Contains(strings.ToLower(outboundRequest.Headers.Get("Content-Type")+" "+outboundRequest.ContentType), "application/json") {
+		return
+	}
+
+	body := append([]byte(nil), ra.internalRequest.RawRequest.Body...)
+	if len(body) == 0 {
+		return
+	}
+	if ra.internalRequest.Model != "" {
+		var err error
+		body, err = sjson.SetBytes(body, "model", ra.internalRequest.Model)
+		if err != nil {
+			log.Warnf("failed to update model in same-format request body: %v, keeping transformed body", err)
+			return
+		}
+	}
+	outboundRequest.Body = body
 }
 
 // writeStream 把 pipeline 输出的客户端格式流写回请求方，并保留首 token 超时切换通道的行为。

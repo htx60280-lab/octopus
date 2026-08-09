@@ -64,13 +64,7 @@ Download the binary for your platform from [Releases](https://github.com/bestrui
 
 **Dependencies:**
 
-The backend depends on [axonhub/llm](https://github.com/looplj/axonhub) via a relative-path `replace` directive. Clone it next to this repository:
-
-```bash
-git clone -b unstable https://github.com/looplj/axonhub.git ../axonhub
-```
-
-> 💡 **Tip**: `scripts/build.sh` detects and clones this dependency automatically if it is missing.
+The backend uses a pinned version of [axonhub/llm](https://github.com/looplj/axonhub), which `go mod` downloads automatically.
 
 ```bash
 # Clone the repository

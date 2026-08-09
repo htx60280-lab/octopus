@@ -33,6 +33,9 @@ type RelayLog struct {
 	ActualModelName   string           `json:"actual_model_name"`                        // 实际使用模型名称
 	InputTokens       int              `json:"input_tokens"`                             // 输入Token
 	OutputTokens      int              `json:"output_tokens"`                            // 输出 Token
+	CacheReported     bool             `json:"cache_reported"`                           // 上游是否返回缓存明细
+	CacheReadTokens   int              `json:"cache_read_tokens"`                        // 缓存读取 Token
+	CacheWriteTokens  int              `json:"cache_write_tokens"`                       // 缓存写入 Token
 	Ftut              int              `json:"ftut"`                                     // 首字时间(毫秒)
 	UseTime           int              `json:"use_time"`                                 // 总用时(毫秒)
 	Cost              float64          `json:"cost"`                                     // 消耗费用

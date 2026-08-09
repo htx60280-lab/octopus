@@ -29,7 +29,13 @@ func static(urlPrefix string, fileSystem http.FileSystem) gin.HandlerFunc {
 			return
 		}
 		if _, err := fileSystem.Open(c.Request.URL.Path); err == nil {
-			c.Header("Cache-Control", "public, max-age=31536000, immutable")
+			// 只有 Vite 生成的带哈希资源可以永久缓存。首页、Service Worker
+			// 和 public 目录资源必须重新验证，否则发布新版本后会继续返回旧文件。
+			if strings.HasPrefix(c.Request.URL.Path, "/assets/") {
+				c.Header("Cache-Control", "public, max-age=31536000, immutable")
+			} else {
+				c.Header("Cache-Control", "no-cache")
+			}
 			fileserver.ServeHTTP(c.Writer, c.Request)
 			c.Abort()
 		}

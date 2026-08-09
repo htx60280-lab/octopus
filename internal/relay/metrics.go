@@ -27,8 +27,11 @@ type RelayMetrics struct {
 	InternalResponse []byte
 
 	// 统计指标
-	ActualModel string
-	Stats       model.StatsMetrics
+	ActualModel      string
+	Stats            model.StatsMetrics
+	CacheReported    bool
+	CacheReadTokens  int64
+	CacheWriteTokens int64
 
 	// 参数覆盖
 	ParamOverride string
@@ -42,6 +45,14 @@ func (m *RelayMetrics) RecordUsage(usage *llm.Usage) {
 	// usage 已由 axonhub/llm 标准化；octopus 仍使用本地模型价格表计算成本，所以这里只做用量落点和价格换算。
 	m.Stats.InputToken = usage.PromptTokens
 	m.Stats.OutputToken = usage.CompletionTokens
+	m.CacheReported = false
+	m.CacheReadTokens = 0
+	m.CacheWriteTokens = 0
+	if usage.PromptTokensDetails != nil {
+		m.CacheReported = true
+		m.CacheReadTokens = usage.PromptTokensDetails.CachedTokens
+		m.CacheWriteTokens = usage.PromptTokensDetails.WriteCachedTokens
+	}
 
 	modelPrice := price.GetLLMPrice(m.ActualModel)
 	if modelPrice == nil {
@@ -52,10 +63,7 @@ func (m *RelayMetrics) RecordUsage(usage *llm.Usage) {
 		tokenDetails = &llm.PromptTokensDetails{}
 	}
 	// 缓存读、缓存写和普通输入的单价不同；如果上游返回的缓存明细超过总输入 token，就退回按全部输入 token 计费，避免出现负成本。
-	nonCachedTokens := usage.PromptTokens - tokenDetails.CachedTokens - tokenDetails.WriteCachedTokens
-	if nonCachedTokens < 0 {
-		nonCachedTokens = usage.PromptTokens
-	}
+	nonCachedTokens := nonCachedInputTokens(usage.PromptTokens, tokenDetails.CachedTokens, tokenDetails.WriteCachedTokens)
 	m.Stats.InputCost = (float64(tokenDetails.CachedTokens)*modelPrice.CacheRead +
 		float64(tokenDetails.WriteCachedTokens)*modelPrice.CacheWrite +
 		float64(nonCachedTokens)*modelPrice.Input) * 1e-6
@@ -93,9 +101,9 @@ func (m *RelayMetrics) Save(ctx context.Context, success bool, err error, attemp
 		})
 	}
 
-	log.Infof("relay complete: model=%s, channel=%d(%s), success=%t, duration=%dms, input_token=%d, output_token=%d, input_cost=%f, output_cost=%f, total_cost=%f, attempts=%d",
+	log.Infof("relay complete: model=%s, channel=%d(%s), success=%t, duration=%dms, input_token=%d, output_token=%d, cache_reported=%t, cache_read=%d, cache_write=%d, input_cost=%f, output_cost=%f, total_cost=%f, attempts=%d",
 		m.RequestModel, channelID, channelName, success, duration.Milliseconds(),
-		m.Stats.InputToken, m.Stats.OutputToken,
+		m.Stats.InputToken, m.Stats.OutputToken, m.CacheReported, m.CacheReadTokens, m.CacheWriteTokens,
 		m.Stats.InputCost, m.Stats.OutputCost, m.Stats.InputCost+m.Stats.OutputCost,
 		len(attempts))
 
@@ -126,6 +134,9 @@ func (m *RelayMetrics) saveLog(ctx context.Context, err error, duration time.Dur
 		ChannelName:      channelName,
 		ChannelId:        channelID,
 		ActualModelName:  m.ActualModel,
+		CacheReported:    m.CacheReported,
+		CacheReadTokens:  int(m.CacheReadTokens),
+		CacheWriteTokens: int(m.CacheWriteTokens),
 		UseTime:          int(duration.Milliseconds()),
 		Attempts:         attempts,
 		TotalAttempts:    len(attempts),
@@ -142,7 +153,7 @@ func (m *RelayMetrics) saveLog(ctx context.Context, err error, duration time.Dur
 
 	// 用量
 	if m.Stats.InputToken > 0 || m.Stats.OutputToken > 0 {
-		relayLog.InputTokens = int(m.Stats.InputToken)
+		relayLog.InputTokens = int(nonCachedInputTokens(m.Stats.InputToken, m.CacheReadTokens, m.CacheWriteTokens))
 		relayLog.OutputTokens = int(m.Stats.OutputToken)
 		relayLog.Cost = m.Stats.InputCost + m.Stats.OutputCost
 	}
@@ -158,6 +169,14 @@ func (m *RelayMetrics) saveLog(ctx context.Context, err error, duration time.Dur
 	if logErr := op.RelayLogAdd(ctx, relayLog); logErr != nil {
 		log.Warnf("failed to save relay log: %v", logErr)
 	}
+}
+
+func nonCachedInputTokens(total, cacheRead, cacheWrite int64) int64 {
+	nonCached := total - cacheRead - cacheWrite
+	if nonCached < 0 {
+		return total
+	}
+	return nonCached
 }
 
 func (m *RelayMetrics) requestContent() string {

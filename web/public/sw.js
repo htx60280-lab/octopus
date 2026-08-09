@@ -8,7 +8,7 @@
  * - FONT cache is version-independent (fonts persist across updates)
  */
 const CACHE_PREFIX = 'octopus';
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const CACHE_NAMES = {
     static: `${CACHE_PREFIX}-static-${CACHE_VERSION}`,
     app: `${CACHE_PREFIX}-app-${CACHE_VERSION}`,
@@ -25,16 +25,47 @@ const SW_MESSAGE_TYPE = {
 // Precache (PWA essentials)
 const PRECACHE_URLS = ['/', '/manifest.json', '/web-app-manifest-192x192.png', '/web-app-manifest-512x512.png', '/logo-dark.svg'];
 
+function offlineResponse() {
+    return new Response('Offline', { status: 503 });
+}
+
+async function openCache(cacheName) {
+    try {
+        return await caches.open(cacheName);
+    } catch (e) {
+        console.warn('SW cache open skipped:', e?.message || e);
+        return null;
+    }
+}
+
+async function matchInCache(cache, request) {
+    if (!cache) return null;
+    try {
+        return await cache.match(request);
+    } catch (e) {
+        console.warn('SW cache match skipped:', e?.message || e);
+        return null;
+    }
+}
+
+async function fetchAndCache(cache, request) {
+    const response = await fetch(request);
+    await putInCache(cache, request, response);
+    return response;
+}
+
 // ============ 安装事件 ============
 self.addEventListener('install', (event) => {
     event.waitUntil(
         (async () => {
             // Best-effort precache: if one asset fails, we still want the SW to install.
-            try {
-                const cache = await caches.open(CACHE_NAMES.app);
-                await cache.addAll(PRECACHE_URLS);
-            } catch {
-                // ignore
+            const cache = await openCache(CACHE_NAMES.app);
+            if (cache) {
+                await Promise.allSettled(PRECACHE_URLS.map(async (url) => {
+                    // 绕过浏览器 HTTP 缓存，避免新版本把旧首页重新预缓存。
+                    const request = new Request(url, { cache: 'reload' });
+                    await fetchAndCache(cache, request);
+                }));
             }
             await self.skipWaiting();
         })()
@@ -90,7 +121,7 @@ self.addEventListener('fetch', (event) => {
     }
 
     // 其他静态资源（public 目录）：Stale While Revalidate
-    event.respondWith(staleWhileRevalidate(request, CACHE_NAMES.app));
+    event.respondWith(staleWhileRevalidate(request, CACHE_NAMES.app, event));
 });
 
 // ============ 缓存策略 ============
@@ -108,7 +139,7 @@ function isCacheable(response) {
 
 async function putInCache(cache, request, response) {
     try {
-        if (isCacheable(response)) {
+        if (cache && isCacheable(response)) {
             await cache.put(request, response.clone());
         }
     } catch (e) {
@@ -121,19 +152,17 @@ async function putInCache(cache, request, response) {
  * Cache First：优先缓存，适用于带哈希的不变资源
  */
 async function cacheFirst(request, cacheName) {
-    const cache = await caches.open(cacheName);
-    const cached = await cache.match(request);
+    const cache = await openCache(cacheName);
+    const cached = await matchInCache(cache, request);
     if (cached) {
         return cached;
     }
 
     try {
-        const response = await fetch(request);
-        await putInCache(cache, request, response);
-        return response;
+        return await fetchAndCache(cache, request);
     } catch {
         // 离线且无缓存
-        return new Response('Offline', { status: 503 });
+        return offlineResponse();
     }
 }
 
@@ -141,40 +170,37 @@ async function cacheFirst(request, cacheName) {
  * Network First：优先网络，适用于需要最新内容的资源
  */
 async function networkFirst(request, cacheName, { fallbackUrl = null } = {}) {
-    const cache = await caches.open(cacheName);
+    const cache = await openCache(cacheName);
     try {
-        const response = await fetch(request);
-        await putInCache(cache, request, response);
-        return response;
+        return await fetchAndCache(cache, request);
     } catch {
-        const cached = await cache.match(request);
+        const cached = await matchInCache(cache, request);
         if (cached) {
             return cached;
         }
         // 如果有 fallback（通常是首页），返回 fallback
         if (fallbackUrl) {
-            const fallback = await cache.match(fallbackUrl);
+            const fallback = await matchInCache(cache, fallbackUrl);
             if (fallback) return fallback;
         }
-        return new Response('Offline', { status: 503 });
+        return offlineResponse();
     }
 }
 
 /**
  * Stale While Revalidate：返回缓存同时后台更新
  */
-async function staleWhileRevalidate(request, cacheName) {
-    const cache = await caches.open(cacheName);
-    const cached = await cache.match(request);
+function staleWhileRevalidate(request, cacheName, event) {
+    const cachePromise = openCache(cacheName);
+    const cachedPromise = cachePromise.then((cache) => matchInCache(cache, request));
+    const updatePromise = cachePromise
+        .then((cache) => fetchAndCache(cache, request))
+        .catch(() => null);
 
-    const fetchPromise = fetch(request)
-        .then(async (response) => {
-            await putInCache(cache, request, response);
-            return response;
-        })
-        .catch(() => cached || new Response('Offline', { status: 503 }));
-
-    return cached || fetchPromise;
+    // 缓存命中时 respondWith 会立即结束；必须显式延长事件生命周期，
+    // 否则后台更新可能在 cache.put 完成前被浏览器终止。
+    event.waitUntil(updatePromise);
+    return cachedPromise.then((cached) => cached || updatePromise.then((response) => response || offlineResponse()));
 }
 
 // ============ 消息事件 ============

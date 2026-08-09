@@ -64,13 +64,7 @@ docker compose up -d
 
 **依赖说明：**
 
-后端依赖 [axonhub/llm](https://github.com/looplj/axonhub)，通过 `go.mod` 的相对路径 `replace` 引用，请将仓库克隆到本项目的上级目录：
-
-```bash
-git clone -b unstable https://github.com/looplj/axonhub.git ../axonhub
-```
-
-> 💡 **提示**：`scripts/build.sh` 会自动检测并克隆该依赖。
+后端使用已固定版本的 [axonhub/llm](https://github.com/looplj/axonhub)，`go mod` 会自动下载。
 
 ```bash
 # 克隆项目
