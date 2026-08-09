@@ -594,27 +594,35 @@ main() {
         # Standard builds (pure Go, static binaries)
         if ! build_standard linux x86_64; then
             log_error "Failed to build Linux x86_64"
+            exit 1
         fi
         if ! build_standard linux arm64; then
             log_error "Failed to build Linux arm64"
+            exit 1
         fi
         if ! build_standard linux armv7; then
             log_error "Failed to build Linux armv7"
+            exit 1
         fi
         if ! build_standard linux x86; then
             log_error "Failed to build Linux x86"
+            exit 1
         fi
         if ! build_standard windows x86_64; then
             log_error "Failed to build Windows x86_64"
+            exit 1
         fi
         if ! build_standard windows x86; then
             log_error "Failed to build Windows x86"
+            exit 1
         fi
         if ! build_standard darwin arm64; then
             log_error "Failed to build Darwin arm64"
+            exit 1
         fi
         if ! build_standard darwin x86_64; then
-            log_error "Failed to build Darwin arm64"
+            log_error "Failed to build Darwin x86_64"
+            exit 1
         fi
 
         # Post-processing

@@ -146,63 +146,69 @@ def generate_entry(model_id: str, cost: dict) -> str:
     return f'\t"{model_id}": {{Input: {input_price}, Output: {output_price}, CacheRead: {cache_read}, CacheWrite: {cache_write}}},'
 
 
+def collect_entries(raw_price: dict) -> tuple[dict[str, str], dict[str, int]]:
+    """收集价格条目，并按最终模型名去重。"""
+    entries: dict[str, str] = {}
+    provider_counts: dict[str, int] = {}
+
+    for provider in PROVIDERS:
+        if provider not in raw_price:
+            continue
+
+        models = raw_price[provider].get("models", {})
+        provider_ids: set[str] = set()
+
+        for model_data in models.values():
+            model_id = model_data.get("id", "").lower()
+            cost = model_data.get("cost", {})
+
+            if not model_id:
+                continue
+
+            # 同一供应商可能用不同 map key 返回同一个模型 id；后出现的原始模型价格覆盖前者，
+            # 与运行时价格更新的行为保持一致。
+            entries[model_id] = generate_entry(model_id, cost)
+            provider_ids.add(model_id)
+
+            aliases = generate_claude_aliases(model_id)
+            if model_id in MODEL_ALIASES:
+                aliases.extend(MODEL_ALIASES[model_id])
+
+            # 别名不能覆盖原始模型或已生成的别名，避免 Go map 出现重复 key。
+            for alias in set(aliases):
+                alias_id = alias.lower()
+                provider_ids.add(alias_id)
+                entries.setdefault(alias_id, generate_entry(alias_id, cost))
+
+        provider_counts[provider] = len(provider_ids)
+
+    return entries, provider_counts
+
+
 def main():
     print(f"Fetching price data from {LLM_PRICE_URL}...")
     raw_price = fetch_price_data()
-    
-    entries = []
-    model_count = 0
-    
+
+    entries, provider_counts = collect_entries(raw_price)
     for provider in PROVIDERS:
         if provider not in raw_price:
             print(f"  Provider '{provider}' not found, skipping...")
             continue
-            
-        models = raw_price[provider].get("models", {})
-        provider_count = 0
-        
-        for model_data in models.values():
-            model_id = model_data.get("id", "").lower()
-            cost = model_data.get("cost", {})
-            
-            if not model_id:
-                continue
-            
-            # 添加原始模型
-            entries.append(generate_entry(model_id, cost))
-            provider_count += 1
-            
-            # 收集所有别名
-            aliases = []
-            
-            # 1. Claude 模型自动生成别名
-            aliases.extend(generate_claude_aliases(model_id))
-            
-            # 2. 静态别名映射
-            if model_id in MODEL_ALIASES:
-                aliases.extend(MODEL_ALIASES[model_id])
-            
-            # 添加别名 (去重)
-            for alias in set(aliases):
-                entries.append(generate_entry(alias.lower(), cost))
-                provider_count += 1
-            
-        print(f"  {provider}: {provider_count} models")
-        model_count += provider_count
-    
+        print(f"  {provider}: {provider_counts[provider]} models")
+
     # 生成 Go 文件内容
     update_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     content = PRESETS_GO_TEMPLATE.format(
         update_time=update_time,
-        entries="\n".join(entries),
+        entries="\n".join(entries.values()),
     )
-    
+
     # 写入文件
     script_dir = Path(__file__).parent
     output_path = script_dir.parent / "internal" / "price" / "presets.go"
-    
+
     output_path.write_text(content, encoding="utf-8")
-    print(f"\nGenerated {output_path} with {model_count} models")
+    print(f"\nGenerated {output_path} with {len(entries)} models")
 
 
 if __name__ == "__main__":
