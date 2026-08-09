@@ -76,3 +76,45 @@ func TestApplyChannelRequestOptionsKeepsTransformedBodyAcrossFormats(t *testing.
 		t.Fatalf("cross-format body changed to %s", outbound.Body)
 	}
 }
+
+func TestShouldDetectEmptyResponse(t *testing.T) {
+	tests := []struct {
+		name     string
+		inbound  llm.APIFormat
+		outbound llm.APIFormat
+		want     bool
+	}{
+		{
+			name:     "same-format anthropic",
+			inbound:  llm.APIFormatAnthropicMessage,
+			outbound: llm.APIFormatAnthropicMessage,
+			want:     false,
+		},
+		{
+			name:     "anthropic to openai",
+			inbound:  llm.APIFormatAnthropicMessage,
+			outbound: llm.APIFormatOpenAIChatCompletion,
+			want:     true,
+		},
+		{
+			name:     "openai to anthropic",
+			inbound:  llm.APIFormatOpenAIChatCompletion,
+			outbound: llm.APIFormatAnthropicMessage,
+			want:     true,
+		},
+		{
+			name:     "same-format openai",
+			inbound:  llm.APIFormatOpenAIChatCompletion,
+			outbound: llm.APIFormatOpenAIChatCompletion,
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldDetectEmptyResponse(tt.inbound, tt.outbound); got != tt.want {
+				t.Fatalf("shouldDetectEmptyResponse() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}

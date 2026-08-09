@@ -256,14 +256,19 @@ func (ra *relayAttempt) forward() (int, error) {
 		t := time.Duration(ra.group.FirstTokenTimeOut) * time.Second
 		streamFirstEventTimeout, nonStreamTimeout = t, t
 	}
+	pipelineOptions := []pipeline.Option{
+		pipeline.WithMiddlewares(stream.EnsureUsage(), relayMiddleware),
+		pipeline.WithResponseTimeouts(streamFirstEventTimeout, nonStreamTimeout),
+	}
+	if shouldDetectEmptyResponse(ra.internalRequest.APIFormat, ra.channel.Type) {
+		pipelineOptions = append(pipelineOptions, pipeline.WithEmptyResponseDetection())
+	}
 
 	result, err := pipeline.NewFactory(httpclient.NewHttpClientWithClient(httpClient)).
 		Pipeline(
 			&parsedRequestInbound{Inbound: ra.inAdapter, request: ra.internalRequest},
 			ra.outAdapter,
-			pipeline.WithMiddlewares(stream.EnsureUsage(), relayMiddleware),
-			pipeline.WithEmptyResponseDetection(),
-			pipeline.WithResponseTimeouts(streamFirstEventTimeout, nonStreamTimeout),
+			pipelineOptions...,
 		).
 		Process(ctx, ra.internalRequest.RawRequest)
 	if err != nil {
@@ -299,6 +304,11 @@ func (ra *relayAttempt) forward() (int, error) {
 	}
 	ra.c.Data(statusCode, contentType, result.Response.Body)
 	return statusCode, nil
+}
+
+func shouldDetectEmptyResponse(inboundType, outboundType llm.APIFormat) bool {
+	// Anthropic 允许只有思考和工具调用的合法响应；同格式转换时检测器可能误判为空。
+	return inboundType != llm.APIFormatAnthropicMessage || outboundType != llm.APIFormatAnthropicMessage
 }
 
 func (ra *relayAttempt) applyChannelRequestOptions(outboundRequest *httpclient.Request) {
